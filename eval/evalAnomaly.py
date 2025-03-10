@@ -56,10 +56,12 @@ def main():
     print ("Loading model: " + modelpath)
     print ("Loading weights: " + weightspath)
 
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = ERFNet(NUM_CLASSES)
+    model = model.to(device)
 
     if (not args.cpu):
-        model = torch.nn.DataParallel(model).cuda()
+        model = torch.nn.DataParallel(model)
 
     def load_my_state_dict(model, state_dict):  #custom function to load model when not all dict elements
         own_state = model.state_dict()
@@ -114,7 +116,7 @@ def main():
              ood_gts_list.append(ood_gts)
              anomaly_score_list.append(anomaly_result)
         del result, anomaly_result, ood_gts, mask
-        torch.cuda.empty_cache()
+        #torch.cuda.empty_cache()
 
     file.write( "\n")
 
