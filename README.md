@@ -42,7 +42,7 @@ on different semantic segmentation architectures.
 3. [ICNet for Real-Time Semantic Segmentation on High-Resolution Images](ICNet.pdf)
 4. [Enet: A deep neural network architecture for real-time semantic segmentation](Enet.pdf)
 5. [SegmentMeIfYouCan: A Benchmark for Anomaly Segmentation](SegmentMeIfYouCan.pdf)
-6. ERFNet: Eﬃcient Residual Factorized ConvNet for Real-Time Semantic Segmentation
+6. [ERFNet: Eﬃcient Residual Factorized ConvNet for Real-Time Semantic Segmentation](ERFNet.pdf)
 
 
 # Spiegazione e Confronto di BiSeNet, BiSeNetV2, ICNet e ENet
