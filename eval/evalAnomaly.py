@@ -11,6 +11,7 @@ import os.path as osp
 from argparse import ArgumentParser
 from ood_metrics import fpr_at_95_tpr, calc_metrics, plot_roc, plot_pr,plot_barcode
 from sklearn.metrics import roc_auc_score, roc_curve, auc, precision_recall_curve, average_precision_score
+import torch.nn.functional as F
 
 seed = 42
 
@@ -42,6 +43,8 @@ def main():
     parser.add_argument('--num-workers', type=int, default=4)
     parser.add_argument('--batch-size', type=int, default=1)
     parser.add_argument('--cpu', action='store_true')
+    parser.add_argument('--method', default='msp', help='msp | maxlogit | maxentropy | voidclassifier')
+    parser.add_argument('--temperature', type=float, default=1.0)
     args = parser.parse_args()
     anomaly_score_list = []
     ood_gts_list = []
@@ -86,7 +89,22 @@ def main():
         images = images.permute(0,3,1,2)
         with torch.no_grad():
             result = model(images)
-        anomaly_result = 1.0 - np.max(result.squeeze(0).data.cpu().numpy(), axis=0)            
+        
+        # select method and compute anomaly score   
+        if args.method == 'msp':
+            #anomaly_result = 1.0 - np.max(result.squeeze(0).data.cpu().numpy(), axis=0)  
+            softmax_result = F.softmax(result.squeeze(0) / args.temperature, dim=0)
+            anomaly_result = 1.0 - torch.max(softmax_result, dim=0)[0]
+        elif args.method == 'maxlogit':
+            anomaly_result = 1.0 - torch.max(result.squeeze(0), dim=0)[0]
+        elif args.method == 'maxentropy':
+            softmax_result = F.softmax(result.squeeze(0), dim=0)
+            log_softmax_result = F.log_softmax(result.squeeze(0), dim=0)
+            anomaly_result = -torch.sum(softmax_result * log_softmax_result, dim=0)
+        elif args.method == 'voidclassifier':
+            anomaly_result = F.softmax(result.squeeze(0), dim=0)[-1]
+        anomaly_result = anomaly_result.data.cpu().numpy()  
+                
         pathGT = path.replace("images", "labels_masks")                
         if "RoadObsticle21" in pathGT:
            pathGT = pathGT.replace("webp", "png")
@@ -138,10 +156,13 @@ def main():
     prc_auc = average_precision_score(val_label, val_out)
     fpr = fpr_at_95_tpr(val_out, val_label)
 
+    print(f'Method: {args.method}')
+    if args.method == 'msp':
+        print(f'Temperature: {args.temperature}')
     print(f'AUPRC score: {prc_auc*100.0}')
     print(f'FPR@TPR95: {fpr*100.0}')
 
-    file.write(('    AUPRC score:' + str(prc_auc*100.0) + '   FPR@TPR95:' + str(fpr*100.0) ))
+    file.write(('Method: '+ args.method +' AUPRC score:' + str(prc_auc*100.0) + '   FPR@TPR95:' + str(fpr*100.0) ))
     file.close()
 
 if __name__ == '__main__':
