@@ -19,7 +19,8 @@ def is_image(filename):
     return any(filename.endswith(ext) for ext in EXTENSIONS)
 
 def is_label(filename):
-    return filename.endswith("_labelTrainIds.png")
+    return filename.endswith("_labelIds.png") # filename.endswith("_labelTrainIds.png")
+
 
 def image_path(root, basename, extension):
     return os.path.join(root, f'{basename}{extension}')
@@ -84,9 +85,9 @@ class cityscapes(Dataset):
 
         #print(filename)
 
-        with open(image_path_city(self.images_root, filename), 'rb') as f:
+        with open(filename, 'rb') as f: #old code: open(image_path_city(self.images_root, filename), 'rb')
             image = load_image(f).convert('RGB')
-        with open(image_path_city(self.labels_root, filenameGt), 'rb') as f:
+        with open(filenameGt, 'rb') as f: #old code: open(image_path_city(self.labels_root, filename), 'rb')
             label = load_image(f).convert('P')
 
         if self.input_transform is not None:
