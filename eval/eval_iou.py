@@ -75,7 +75,14 @@ def main(args):
 
 
     loader = DataLoader(cityscapes(args.datadir, input_transform_cityscapes, target_transform_cityscapes, subset=args.subset), num_workers=args.num_workers, batch_size=args.batch_size, shuffle=False)
+    # Dopo aver creato il loader, aggiungi il controllo corretto per le immagini
+    print(f"Numero di immagini: {len(loader.dataset.filenames)}")
+    print(f"Numero di etichette: {len(loader.dataset.filenamesGt)}")
 
+    print(f"Caricamento del dataset da: {args.datadir}")  
+    print(f"Numero di batch: {len(loader)}")  # Aggiungi questa riga per vedere quante iterazioni ci sono nel DataLoader
+    #print("Model configuration:")
+    # print(model)
 
     iouEvalVal = iouEval(NUM_CLASSES)
 
@@ -85,6 +92,8 @@ def main(args):
         if (not args.cpu):
             images = images.cuda()
             labels = labels.cuda()
+
+        labels = torch.clamp(labels, min=0, max=19)  # Limita le etichette tra 0 e 19
 
         inputs = Variable(images)
         with torch.no_grad():
@@ -136,14 +145,34 @@ if __name__ == '__main__':
     parser = ArgumentParser()
 
     parser.add_argument('--state')
-
-    parser.add_argument('--loadDir',default="../trained_models/")
+    parser.add_argument('--loadDir', default="../trained_models/")
     parser.add_argument('--loadWeights', default="erfnet_pretrained.pth")
     parser.add_argument('--loadModel', default="erfnet.py")
-    parser.add_argument('--subset', default="val")  #can be val or train (must have labels)
-    parser.add_argument('--datadir', default="/home/shyam/ViT-Adapter/segmentation/data/cityscapes/")
+    parser.add_argument('--subset', default="val")  # can be val or train (must have labels)
+    parser.add_argument('--datadir', default="/home/shyam/ViT-Adapter/segmentation/data/Cityscapes/")
+    
+    # Aggiungi questa parte per creare correttamente i percorsi
     parser.add_argument('--num-workers', type=int, default=4)
     parser.add_argument('--batch-size', type=int, default=1)
     parser.add_argument('--cpu', action='store_true')
 
-    main(parser.parse_args())
+    args = parser.parse_args()
+
+    # Creazione dei percorsi corretti all'interno di main
+    image_dir = os.path.join(args.datadir, 'leftImg8bit', 'leftImg8bit', args.subset)
+    label_dir = os.path.join(args.datadir, 'gtFine', 'gtFine', args.subset)
+
+    # Verifica se le cartelle esistono e contengono file
+    if not os.path.exists(image_dir):
+        print(f"Error: Immagini non trovate in {image_dir}")
+    else:
+        print(f"Immagini trovate in: {image_dir}")
+
+    if not os.path.exists(label_dir):
+        print(f"Error: Etichette non trovate in {label_dir}")
+    else:
+        print(f"Etichette trovate in: {label_dir}")
+
+
+    # Passa questi percorsi alla funzione main
+    main(args)

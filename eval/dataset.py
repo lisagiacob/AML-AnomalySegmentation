@@ -16,10 +16,10 @@ def load_image(file):
     return Image.open(file)
 
 def is_image(filename):
-    return any(filename.endswith(ext) for ext in EXTENSIONS)
+    return any(filename.endswith(ext) for ext in EXTENSIONS) and not filename.startswith('.')
 
 def is_label(filename):
-    return filename.endswith("_labelIds.png") # filename.endswith("_labelTrainIds.png")
+    return filename.endswith("_labelIds.png") and not filename.startswith('.') # filename.endswith("_labelTrainIds.png")
 
 
 def image_path(root, basename, extension):
@@ -67,8 +67,10 @@ class cityscapes(Dataset):
 
     def __init__(self, root, input_transform=None, target_transform=None, subset='val'):
 
-        self.images_root = os.path.join(root, 'leftImg8bit/' + subset)
-        self.labels_root = os.path.join(root, 'gtFine/' + subset)
+        self.images_root = os.path.join(root, 'leftImg8bit', 'leftImg8bit', subset)
+        self.labels_root = os.path.join(root, 'gtFine', 'gtFine', subset)
+        #self.images_root = os.path.join(root, 'leftImg8bit/' + subset)
+        #self.labels_root = os.path.join(root, 'gtFine/' + subset)
         print(self.images_root, self.labels_root)
         self.filenames = [os.path.join(dp, f) for dp, dn, fn in os.walk(os.path.expanduser(self.images_root)) for f in fn if is_image(f)]
         self.filenames.sort()

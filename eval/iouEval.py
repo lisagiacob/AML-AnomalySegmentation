@@ -18,15 +18,29 @@ class iouEval:
         self.fp = torch.zeros(classes).double()
         self.fn = torch.zeros(classes).double()        
 
+    #erve a confrontare le predizioni del modello (x) con i ground truth (y) per calcolare le metriche necessarie a ottenere l’IoU.
     def addBatch(self, x, y):   #x=preds, y=targets
         #sizes should be "batch_size x nClasses x H x W"
         
         #print ("X is cuda: ", x.is_cuda)
         #print ("Y is cuda: ", y.is_cuda)
 
+        #Se uno dei due tensori è sulla GPU, li spostiamo la entrambi
         if (x.is_cuda or y.is_cuda):
             x = x.cuda()
             y = y.cuda()
+
+        # Il one-hot encoding è una tecnica usata per rappresentare etichette categoriali (come classi) 
+        # in un formato numerico che può essere elaborato dai modelli di machine learning o deep learning.
+        # ogni classe viene rappresentata con un vettore che ha tanti elementi quanti sono le classi, 
+        # tutti 0 tranne uno 1 nella posizione della classe: [0, 0, 1, 0] = classe 2 auto
+
+        # Hai un’immagine dove ogni pixel ha un’etichetta intera (es: 0, 1, 2…).
+        # converti ogni pixel in one-hot, cioè una mappa dove: 
+        # Ogni canale rappresenta una classe.
+        # I pixel nel canale della loro classe sono 1, tutti gli altri 0.
+        # Immagie 2x2 con queste etichette: [[0, 2], \n [1, 0]]
+        # One hot diveta tre canali 2x2: canale 0 [[1, 0], \n [0, 1]] canale 1 [[0, 0], \n [1, 0]] canale 2 [[0, 1], \n [0, 0]]
 
         #if size is "batch_size x 1 x H x W" scatter to onehot
         if (x.size(1) == 1):
@@ -52,18 +66,17 @@ class iouEval:
         else:
             ignores=0
 
-        #print(type(x_onehot))
-        #print(type(y_onehot))
-        #print(x_onehot.size())
-        #print(y_onehot.size())
+        # x è la predizione del modello (cioè l’output del tuo modello su un’immagine).
+        # y è il ground truth, ovvero l’etichetta corretta.
 
-        tpmult = x_onehot * y_onehot    #times prediction and gt coincide is 1
+        tpmult = x_onehot * y_onehot    #Questa operazione produce una mappa in cui ci sono 1 solo dove predizione e ground truth sono entrambe 1 per quella classe → true positives.
         tp = torch.sum(torch.sum(torch.sum(tpmult, dim=0, keepdim=True), dim=2, keepdim=True), dim=3, keepdim=True).squeeze()
-        fpmult = x_onehot * (1-y_onehot-ignores) #times prediction says its that class and gt says its not (subtracting cases when its ignore label!)
+        fpmult = x_onehot * (1-y_onehot-ignores) #Si ottiene 1 solo nei pixel in cui il modello sbaglia classificando qualcosa come quella classe.
         fp = torch.sum(torch.sum(torch.sum(fpmult, dim=0, keepdim=True), dim=2, keepdim=True), dim=3, keepdim=True).squeeze()
         fnmult = (1-x_onehot) * (y_onehot) #times prediction says its not that class and gt says it is
         fn = torch.sum(torch.sum(torch.sum(fnmult, dim=0, keepdim=True), dim=2, keepdim=True), dim=3, keepdim=True).squeeze() 
 
+        ##Aggiorna contatori globali
         self.tp += tp.double().cpu()
         self.fp += fp.double().cpu()
         self.fn += fn.double().cpu()
