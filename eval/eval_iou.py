@@ -93,8 +93,6 @@ def main(args):
             images = images.cuda()
             labels = labels.cuda()
 
-        labels = torch.clamp(labels, min=0, max=19)  # Limita le etichette tra 0 e 19
-
         inputs = Variable(images)
         with torch.no_grad():
             outputs = model(inputs)
@@ -150,8 +148,6 @@ if __name__ == '__main__':
     parser.add_argument('--loadModel', default="erfnet.py")
     parser.add_argument('--subset', default="val")  # can be val or train (must have labels)
     parser.add_argument('--datadir', default="/home/shyam/ViT-Adapter/segmentation/data/Cityscapes/")
-    
-    # Aggiungi questa parte per creare correttamente i percorsi
     parser.add_argument('--num-workers', type=int, default=4)
     parser.add_argument('--batch-size', type=int, default=1)
     parser.add_argument('--cpu', action='store_true')
@@ -159,8 +155,10 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # Creazione dei percorsi corretti all'interno di main
-    image_dir = os.path.join(args.datadir, 'leftImg8bit', 'leftImg8bit', args.subset)
-    label_dir = os.path.join(args.datadir, 'gtFine', 'gtFine', args.subset)
+    #image_dir = os.path.join(args.datadir, 'leftImg8bit', 'leftImg8bit', args.subset) # perchè due volte leftImg8bit?
+    image_dir = os.path.join(args.datadir, 'leftImg8bit', args.subset)
+    #label_dir = os.path.join(args.datadir, 'gtFine', 'gtFine', args.subset) # perchè due volte gtFine?
+    label_dir = os.path.join(args.datadir, 'gtFine', args.subset)
 
     # Verifica se le cartelle esistono e contengono file
     if not os.path.exists(image_dir):
