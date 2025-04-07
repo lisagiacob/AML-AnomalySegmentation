@@ -2,3 +2,5 @@ myenv/
 LisaREADME.md
 __pycache__/
 .DS_Store
+datasets/
+Validation_Dataset/

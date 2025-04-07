@@ -12,6 +12,7 @@ from argparse import ArgumentParser
 from ood_metrics import fpr_at_95_tpr, calc_metrics, plot_roc, plot_pr,plot_barcode
 from sklearn.metrics import roc_auc_score, roc_curve, auc, precision_recall_curve, average_precision_score
 import torch.nn.functional as F
+from torchvision.transforms import Compose, Resize, ToTensor
 
 seed = 42
 
@@ -19,6 +20,19 @@ seed = 42
 random.seed(seed)
 np.random.seed(seed)
 torch.manual_seed(seed)
+
+transform_input = Compose(
+    [
+        Resize((512, 1024), Image.BILINEAR),
+        ToTensor(),
+    ]
+)
+
+transform_mask = Compose(
+    [
+        Resize((512, 1024), Image.NEAREST),
+    ]
+)
 
 NUM_CHANNELS = 3
 NUM_CLASSES = 20
@@ -85,24 +99,27 @@ def main():
     
     for path in glob.glob(os.path.expanduser(str(args.input[0]))):
         print(path)
-        images = torch.from_numpy(np.array(Image.open(path).convert('RGB'))).unsqueeze(0).float()
-        images = images.permute(0,3,1,2)
+        images = transform_input(Image.open(path).convert('RGB')).unsqueeze(0).float()
+        #images = images.permute(0,3,1,2)
         with torch.no_grad():
-            result = model(images)
+            result = model(images).squeeze(0)
+            
+        if args.method in ['msp', 'maxlogit', 'maxentropy']:
+            result = result[:-1]  # drop void class if model is 20-wide but not trained for void
         
         # select method and compute anomaly score   
         if args.method == 'msp':
             #anomaly_result = 1.0 - np.max(result.squeeze(0).data.cpu().numpy(), axis=0)  
-            softmax_result = F.softmax(result.squeeze(0) / args.temperature, dim=0)
+            softmax_result = F.softmax(result / args.temperature, dim=0)
             anomaly_result = 1.0 - torch.max(softmax_result, dim=0)[0]
         elif args.method == 'maxlogit':
-            anomaly_result = 1.0 - torch.max(result.squeeze(0), dim=0)[0]
+            anomaly_result = 1.0 - torch.max(result, dim=0)[0]
         elif args.method == 'maxentropy':
-            softmax_result = F.softmax(result.squeeze(0), dim=0)
-            log_softmax_result = F.log_softmax(result.squeeze(0), dim=0)
+            softmax_result = F.softmax(result, dim=0)
+            log_softmax_result = F.log_softmax(result, dim=0)
             anomaly_result = -torch.sum(softmax_result * log_softmax_result, dim=0)
         elif args.method == 'voidclassifier':
-            anomaly_result = F.softmax(result.squeeze(0), dim=0)[-1]
+            anomaly_result = F.softmax(result, dim=0)[-1]
         anomaly_result = anomaly_result.data.cpu().numpy()  
                 
         pathGT = path.replace("images", "labels_masks")                
@@ -113,7 +130,7 @@ def main():
         if "RoadAnomaly" in pathGT:
            pathGT = pathGT.replace("jpg", "png")  
 
-        mask = Image.open(pathGT)
+        mask = transform_mask(Image.open(pathGT))
         ood_gts = np.array(mask)
 
         if "RoadAnomaly" in pathGT:
