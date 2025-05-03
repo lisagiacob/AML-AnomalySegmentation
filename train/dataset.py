@@ -62,11 +62,8 @@ class VOC12(Dataset):
 class cityscapes(Dataset):
 
     def __init__(self, root, co_transform=None, subset='train'):
-        self.images_root = os.path.join(root, 'leftImg8bit/')
-        self.labels_root = os.path.join(root, 'gtFine/')
-        
-        self.images_root += subset
-        self.labels_root += subset
+        self.images_root = os.path.join(root, 'leftImg8bit', 'leftImg8bit', subset)
+        self.labels_root = os.path.join(root, 'gtFine', 'gtFine', subset)
 
         print (self.images_root)
         #self.filenames = [image_basename(f) for f in os.listdir(self.images_root) if is_image(f)]
@@ -85,9 +82,9 @@ class cityscapes(Dataset):
         filename = self.filenames[index]
         filenameGt = self.filenamesGt[index]
 
-        with open(image_path_city(self.images_root, filename), 'rb') as f:
+        with open(filename, 'rb') as f:
             image = load_image(f).convert('RGB')
-        with open(image_path_city(self.labels_root, filenameGt), 'rb') as f:
+        with open(filenameGt, 'rb') as f:
             label = load_image(f).convert('P')
 
         if self.co_transform is not None:

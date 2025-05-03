@@ -1,5 +1,6 @@
 import numpy as np
 import os
+import sys
 from sklearn.metrics import precision_recall_curve, auc, roc_curve
 from glob import glob
 from PIL import Image
@@ -21,9 +22,20 @@ def compute_metrics(anomaly_map, gt_mask):
 
     return auprc, fpr95
 
-# Percorsi ai file
-anomaly_dir = "results/anomaly_maps/"
-gt_dir = "data/cityscapes_anomaly_gt/"  # le tue ground truth binarie (0/1)
+if len(sys.argv) < 2:
+    print("Usage: python eval_anomaly_metrics.py <dataset_name>")
+    sys.exit(1)
+
+dataset = sys.argv[1]
+anomaly_dir = f"results/anomaly_maps/{dataset}/"
+gt_dir = f"datasets/{dataset}/binary_gt/"
+
+if not os.path.isdir(anomaly_dir):
+    print("Anomaly map directory not found:", anomaly_dir)
+    sys.exit(1)
+if not os.path.isdir(gt_dir):
+    print("Ground truth directory not found:", gt_dir)
+    sys.exit(1)
 
 auprcs = []
 fpr95s = []
@@ -32,6 +44,10 @@ for anomaly_path in glob(os.path.join(anomaly_dir, "*.npy")):
     filename = os.path.basename(anomaly_path).replace(".npy", ".png")
     gt_path = os.path.join(gt_dir, filename)
 
+    if not os.path.isfile(gt_path):
+        print(f"Missing ground truth for {filename}")
+        continue
+
     anomaly_map = np.load(anomaly_path)
     gt_mask = load_mask(gt_path)
 
@@ -39,5 +55,6 @@ for anomaly_path in glob(os.path.join(anomaly_dir, "*.npy")):
     auprcs.append(auprc)
     fpr95s.append(fpr95)
 
+print(f"Dataset: {dataset}")
 print(f"Mean AuPRC: {np.mean(auprcs):.4f}")
 print(f"Mean FPR@95TPR: {np.mean(fpr95s):.4f}")

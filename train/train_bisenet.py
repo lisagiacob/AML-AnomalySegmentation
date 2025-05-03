@@ -1,11 +1,21 @@
+import os
+import sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from dataset import cityscapes
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torchvision import transforms
-from save.BiSeNet.bisenetv1 import BiSeNetV1
-from eval.dataset import cityscapes
+sys.path.append("save/BiSeNet")
+from bisenetv1 import BiSeNetV1
 from train.iouEval import iouEval
+from torchvision import transforms
+from torchvision.transforms import InterpolationMode
+import torchvision.transforms.functional as TF
+import torch
+import numpy as np
+from PIL import Image
 
 def train():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -20,9 +30,18 @@ def train():
     train_dataset = cityscapes(
         root='datasets/Cityscapes',  # o il path corretto al tuo dataset
         subset='train',
-        co_transform=...  # se serve, altrimenti None
+        co_transform=co_transform  # se serve, altrimenti None
     )
-    train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True, num_workers=4)
+    print(f"[DEBUG] immagini: {len(train_dataset.filenames)}")
+    print(f"[DEBUG] label: {len(train_dataset.filenamesGt)}")
+    print("[ESEMPI immagini]")
+    print("\n".join(train_dataset.filenames[:5]))
+    print("[ESEMPI label]")
+    print("\n".join(train_dataset.filenamesGt[:5]))
+    print(f"{train_dataset.images_root}")
+    print(f"{train_dataset.labels_root}")
+    #train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True, num_workers=4)
+    train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True, num_workers=0)
 
     # Inizializzazione del modello BiSeNetV1
     model = BiSeNetV1(n_classes=20, aux_mode='train')
@@ -74,6 +93,16 @@ def train():
     # Salvataggio del modello addestrato
     torch.save(model.state_dict(), "bisenet_cityscapes.pth")
     print("Modello salvato in bisenet_cityscapes.pth")
+
+def co_transform(image, label):
+    base_size = (512, 1024)
+    image = TF.resize(image, base_size, interpolation=InterpolationMode.BILINEAR)
+    label = TF.resize(label, base_size, interpolation=InterpolationMode.NEAREST)
+
+    image = TF.to_tensor(image)
+    label = torch.as_tensor(np.array(label), dtype=torch.long)  # <-- qui è la chiave
+
+    return image, label
 
 if __name__ == "__main__":
     train()
