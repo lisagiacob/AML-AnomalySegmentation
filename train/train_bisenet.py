@@ -83,7 +83,13 @@ def train():
                 labels = labels.to(device)
 
                 outputs, _, _ = model(images)
-                preds = torch.argmax(outputs, dim=1, keepdim=True)
+                preds = torch.argmax(outputs, dim=1)
+
+                # Ignora i pixel con label 255 (void)
+                valid_mask = labels != 255
+                preds = preds[valid_mask]
+                labels = labels[valid_mask]
+
                 evaluator.addBatch(preds, labels.unsqueeze(1))
 
         iou_mean, iou_per_class = evaluator.getIoU()
