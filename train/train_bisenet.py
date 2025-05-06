@@ -90,7 +90,8 @@ def train():
                 preds = preds[valid_mask]
                 labels = labels[valid_mask]
 
-                evaluator.addBatch(preds, labels.unsqueeze(1))
+                print("x shape:", preds.shape)
+                evaluator.addBatch(preds.unsqueeze(1), labels.unsqueeze(1))
 
         iou_mean, iou_per_class = evaluator.getIoU()
         print(f"mIoU dopo epoch {epoch+1}: {iou_mean.item():.4f}")

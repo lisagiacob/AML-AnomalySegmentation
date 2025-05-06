@@ -5,7 +5,7 @@
 
 import torch
 
-class iouEval:
+class iouEval: 
 
     def __init__(self, nClasses, ignoreIndex=19):
         self.nClasses = nClasses
@@ -23,10 +23,16 @@ class iouEval:
         
         #print ("X is cuda: ", x.is_cuda)
         #print ("Y is cuda: ", y.is_cuda)
+        print("x shape in addBatch:", x.shape)
 
         if (x.is_cuda or y.is_cuda):
             x = x.cuda()
             y = y.cuda()
+
+        if x.dim() == 1:
+            x = x.view(-1, 1)
+        if y.dim() == 1:
+            y = y.view(-1, 1)
 
         #if size is "batch_size x 1 x H x W" scatter to onehot
         if (x.size(1) == 1):
