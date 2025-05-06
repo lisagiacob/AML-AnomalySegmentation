@@ -86,10 +86,9 @@ def train():
                 preds = torch.argmax(outputs, dim=1)
 
                 # Ignora i pixel con label 255 (void)
-                valid_mask = labels != 255
-                preds = preds[valid_mask]
-                labels = labels[valid_mask]
-
+                #valid_mask = labels != 255
+                #preds = preds[valid_mask]
+                #labels = labels[valid_mask]
                 print("x shape:", preds.shape)
                 evaluator.addBatch(preds.unsqueeze(1), labels.unsqueeze(1))
 
