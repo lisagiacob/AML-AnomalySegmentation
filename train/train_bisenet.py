@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 sys.path.append("save/BiSeNet")
 from bisenetv1 import BiSeNetV1
-from train.iouEval import iouEval
+from train.iouEval_bisenet import iouEval
 from torchvision import transforms
 from torchvision.transforms import InterpolationMode
 import torchvision.transforms.functional as TF
