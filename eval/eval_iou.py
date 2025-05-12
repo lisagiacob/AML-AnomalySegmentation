@@ -20,6 +20,7 @@ from torchvision.transforms import ToTensor, ToPILImage
 
 from dataset import cityscapes
 from erfnet import ERFNet
+from enet import ENet
 from transform import Relabel, ToLabel, Colorize
 from iouEval import iouEval, getColorEntry
 
@@ -45,7 +46,10 @@ def main(args):
     print ("Loading model: " + modelpath)
     print ("Loading weights: " + weightspath)
 
-    model = ERFNet(NUM_CLASSES)
+    if args.loadModel == "erfnet.py":
+        model = ERFNet(NUM_CLASSES)
+    elif args.loadModel == "enet.py": 
+        model = ENet(NUM_CLASSES)
 
     #model = torch.nn.DataParallel(model)
     if (not args.cpu):
@@ -99,7 +103,7 @@ def main(args):
 
         iouEvalVal.addBatch(outputs.max(1)[1].unsqueeze(1).data, labels)
 
-        filenameSave = filename[0].split("leftImg8bit/")[1] 
+        filenameSave = filename[0].split("leftImg8bit")[1] 
 
         print (step, filenameSave)
 

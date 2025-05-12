@@ -591,16 +591,9 @@ if __name__ == '__main__':
     parser.add_argument('--cuda', action='store_true', default=True)  #NOTE: cpu-only has not been tested so you might have to change code if you deactivate this flag
     parser.add_argument('--model', default="erfnet")
     parser.add_argument('--state')
-
     parser.add_argument('--port', type=int, default=8097)
-  
-
-    parser.add_argument('--datadir', default=home_dir + "/datasets/cityscapes/")
-
     parser.add_argument('--datadir', default=os.getenv("HOME") + "/datasets/cityscapes/")
     #parser.add_argument('--datadir', default="C:/Users/nikde/Desktop/MAGISTRALE/SECONDO ANNO/ADVANCE MACHINE/PROJECT/Cityscapes")
-    
-
     parser.add_argument('--height', type=int, default=512)
     parser.add_argument('--num-epochs', type=int, default=150)
     parser.add_argument('--num-workers', type=int, default=4)
@@ -614,10 +607,8 @@ if __name__ == '__main__':
     parser.add_argument('--visualize', action='store_true')
     parser.add_argument('--loss-type', type=str, default='crossentropy',
                     help='Type of loss function: crossentropy | focal | logitnorm | isotropy | logitnorm+ce | isotropy+focal | ecc.')
-
     parser.add_argument('--iouTrain', action='store_true', default=False) #recommended: False (takes more time to train otherwise)
     parser.add_argument('--iouVal', action='store_true', default=True)  
     parser.add_argument('--resume', action='store_true')    #Use this flag to load last checkpoint for training  
 
-    main(parser.parse_args())
-git 
+    main(parser.parse_args()) 
