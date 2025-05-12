@@ -7,6 +7,7 @@ import random
 from PIL import Image
 import numpy as np
 from erfnet import ERFNet
+from enet import ENet
 import os.path as osp
 from argparse import ArgumentParser
 from ood_metrics import fpr_at_95_tpr, calc_metrics, plot_roc, plot_pr,plot_barcode
@@ -74,7 +75,10 @@ def main():
     print ("Loading weights: " + weightspath)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = ERFNet(NUM_CLASSES)
+    if args.loadModel == "erfnet.py":
+        model = ERFNet(NUM_CLASSES)
+    elif args.loadModel == "enet.py": 
+        model = ENet(NUM_CLASSES)
     model = model.to(device)
 
     if (not args.cpu):
@@ -173,13 +177,14 @@ def main():
     prc_auc = average_precision_score(val_label, val_out)
     fpr = fpr_at_95_tpr(val_out, val_label)
 
+    print(f"Model: {args.loadModel[:-3]}")
     print(f'Method: {args.method}')
     if args.method == 'msp':
         print(f'Temperature: {args.temperature}')
     print(f'AUPRC score: {prc_auc*100.0}')
     print(f'FPR@TPR95: {fpr*100.0}')
 
-    file.write(('Method: '+ args.method +' AUPRC score:' + str(prc_auc*100.0) + '   FPR@TPR95:' + str(fpr*100.0) ))
+    file.write(('Model: '+ args.loadModel[:-3] +' Method: '+ args.method +' AUPRC score:' + str(prc_auc*100.0) + '   FPR@TPR95:' + str(fpr*100.0) ))
     file.close()
 
 if __name__ == '__main__':
