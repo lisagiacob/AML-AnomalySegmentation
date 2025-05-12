@@ -105,6 +105,76 @@ class CrossEntropyLoss2d(torch.nn.Module):
         return self.loss(torch.nn.functional.log_softmax(outputs, dim=1), targets)
 
 
+class FocalLoss(torch.nn.Module):
+    def __init__(self, gamma=2.0, weight=None):
+        super().__init__()
+        self.gamma = gamma
+        self.weight = weight
+
+    def forward(self, inputs, targets):
+        logpt = F.log_softmax(inputs, dim=1)
+        pt = torch.exp(logpt)
+        logpt = (1 - pt) ** self.gamma * logpt
+        return F.nll_loss(logpt, targets, weight=self.weight)
+
+
+class LogitNormLoss(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, outputs, targets):
+        normed_outputs = outputs / (torch.norm(outputs, dim=1, keepdim=True) + 1e-6)
+        return F.cross_entropy(normed_outputs, targets)
+
+
+class EnhancedIsotropyLoss(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, outputs):
+        batch, c, h, w = outputs.size()
+        features = outputs.permute(0, 2, 3, 1).reshape(-1, c)
+        features = F.normalize(features, dim=1)
+        gram = features.T @ features / features.size(0)
+        identity = torch.eye(c, device=gram.device)
+        return torch.norm(gram - identity, p='fro')
+
+
+def get_loss_function(loss_type, weight=None):
+    
+    if loss_type == 'ce':
+        return CrossEntropyLoss2d(weight)
+    elif loss_type == 'focal':
+        return FocalLoss(weight=weight)
+    elif loss_type == 'logitnorm':
+        return LogitNormLoss()
+    elif loss_type == 'eim':
+        return EnhancedIsotropyLoss()
+
+    
+    elif loss_type == 'logitnorm+ce':
+        ce = CrossEntropyLoss2d(weight)
+        ln = LogitNormLoss()
+        return lambda out, tgt: ce(out, tgt) + ln(out, tgt)
+
+    elif loss_type == 'eim+ce':
+        ce = CrossEntropyLoss2d(weight)
+        eim = EnhancedIsotropyLoss()
+        return lambda out, tgt: ce(out, tgt) + 0.1 * eim(out)
+
+    elif loss_type == 'logitnorm+focal':
+        focal = FocalLoss(weight=weight)
+        ln = LogitNormLoss()
+        return lambda out, tgt: focal(out, tgt) + ln(out, tgt)
+
+    elif loss_type == 'eim+focal':
+        focal = FocalLoss(weight=weight)
+        eim = EnhancedIsotropyLoss()
+        return lambda out, tgt: focal(out, tgt) + 0.1 * eim(out)
+
+    else:
+        raise ValueError(f"Unsupported loss type: {loss_type}")
+
 def train(args, model, enc=False):
     best_acc = 0
 
@@ -170,10 +240,12 @@ def train(args, model, enc=False):
     loader = DataLoader(dataset_train, num_workers=args.num_workers, batch_size=args.batch_size, shuffle=True)
     loader_val = DataLoader(dataset_val, num_workers=args.num_workers, batch_size=args.batch_size, shuffle=False)
 
+    from losses import get_loss_function
+
     if args.cuda:
-        weight = weight.cuda()
-    criterion = CrossEntropyLoss2d(weight)
-    print(type(criterion))
+      weight = weight.cuda()
+    criterion = get_loss_function(args.loss_type, weight)
+    print(f"Using loss: {args.loss_type}")
 
     savedir = f'../save/{args.savedir}'
 
@@ -521,7 +593,14 @@ if __name__ == '__main__':
     parser.add_argument('--state')
 
     parser.add_argument('--port', type=int, default=8097)
+  
+
+    parser.add_argument('--datadir', default=home_dir + "/datasets/cityscapes/")
+
     parser.add_argument('--datadir', default=os.getenv("HOME") + "/datasets/cityscapes/")
+    #parser.add_argument('--datadir', default="C:/Users/nikde/Desktop/MAGISTRALE/SECONDO ANNO/ADVANCE MACHINE/PROJECT/Cityscapes")
+    
+
     parser.add_argument('--height', type=int, default=512)
     parser.add_argument('--num-epochs', type=int, default=150)
     parser.add_argument('--num-workers', type=int, default=4)
@@ -533,9 +612,12 @@ if __name__ == '__main__':
     parser.add_argument('--decoder', action='store_true')
     parser.add_argument('--pretrainedEncoder') #, default="../trained_models/erfnet_encoder_pretrained.pth.tar")
     parser.add_argument('--visualize', action='store_true')
+    parser.add_argument('--loss-type', type=str, default='crossentropy',
+                    help='Type of loss function: crossentropy | focal | logitnorm | isotropy | logitnorm+ce | isotropy+focal | ecc.')
 
     parser.add_argument('--iouTrain', action='store_true', default=False) #recommended: False (takes more time to train otherwise)
     parser.add_argument('--iouVal', action='store_true', default=True)  
     parser.add_argument('--resume', action='store_true')    #Use this flag to load last checkpoint for training  
 
     main(parser.parse_args())
+git 
