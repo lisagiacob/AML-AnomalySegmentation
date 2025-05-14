@@ -27,6 +27,7 @@ import importlib
 from iouEval import iouEval, getColorEntry
 
 from shutil import copyfile
+import torch.nn.functional as F
 
 NUM_CHANNELS = 3
 NUM_CLASSES = 20 #pascal=22, cityscapes=20
@@ -142,7 +143,7 @@ class EnhancedIsotropyLoss(torch.nn.Module):
 
 def get_loss_function(loss_type, weight=None):
     
-    if loss_type == 'ce':
+    if loss_type == 'crossentropy':
         return CrossEntropyLoss2d(weight)
     elif loss_type == 'focal':
         return FocalLoss(weight=weight)
@@ -230,7 +231,7 @@ def train(args, model, enc=False):
     if args.model == "erfnet":
         co_transform = MyCoTransform(enc, augment=True, height=args.height)
         co_transform_val = MyCoTransform(enc, augment=False, height=args.height)
-    elif args.model == "enet":
+    elif args.model == "enet" and args.model == "bisenetv1":
         co_transform = EnetCoTransform(augment=True, height=args.height)
         co_transform_val = EnetCoTransform(augment=False, height=args.height)
     
@@ -239,8 +240,6 @@ def train(args, model, enc=False):
 
     loader = DataLoader(dataset_train, num_workers=args.num_workers, batch_size=args.batch_size, shuffle=True)
     loader_val = DataLoader(dataset_val, num_workers=args.num_workers, batch_size=args.batch_size, shuffle=False)
-
-    from losses import get_loss_function
 
     if args.cuda:
       weight = weight.cuda()
@@ -319,6 +318,7 @@ def train(args, model, enc=False):
             #print (np.unique(labels.numpy()))
             #print("labels: ", np.unique(labels[0].numpy()))
             #labels = torch.ones(4, 1, 512, 1024).long()
+            optimizer.zero_grad()
             if args.cuda:
                 images = images.cuda()
                 labels = labels.cuda()
@@ -327,12 +327,19 @@ def train(args, model, enc=False):
             targets = Variable(labels)
             if args.model == "erfnet":
                 outputs = model(inputs, only_encode=enc)
+                loss = criterion(outputs, targets[:, 0])
             elif args.model == "enet":
                 outputs = model(inputs)
+                loss = criterion(outputs, targets[:, 0])
+            elif args.model == "bisenetv1":
+                outputs, aux1, aux2 = model(inputs)
+                loss1 = criterion(outputs, targets[:, 0])
+                loss2 = criterion(aux1, targets[:, 0])
+                loss3 = criterion(aux2, targets[:, 0])
+                loss = loss1 + 0.4 * (loss2 + loss3)  # Pesi delle perdite ausiliarie
 
             #print("targets", np.unique(targets[:, 0].cpu().data.numpy()))
 
-            optimizer.zero_grad()
             loss = criterion(outputs, targets[:, 0])
             loss.backward()
             optimizer.step()
@@ -396,10 +403,17 @@ def train(args, model, enc=False):
             targets = Variable(labels, volatile=True)
             if args.model == "erfnet":
                 outputs = model(inputs, only_encode=enc)
+                loss = criterion(outputs, targets[:, 0])
             elif args.model == "enet":
                 outputs = model(inputs)
+                loss = criterion(outputs, targets[:, 0])
+            elif args.model == "bisenetv1":
+                outputs, aux1, aux2 = model(inputs)
+                loss1 = criterion(outputs, targets[:, 0])
+                loss2 = criterion(aux1, targets[:, 0])
+                loss3 = criterion(aux2, targets[:, 0])
+                loss = loss1 + 0.4 * (loss2 + loss3)  # Pesi delle perdite ausiliarie
 
-            loss = criterion(outputs, targets[:, 0])
             epoch_loss_val.append(loss.data.item())
             time_val.append(time.time() - start_time)
 
@@ -591,16 +605,9 @@ if __name__ == '__main__':
     parser.add_argument('--cuda', action='store_true', default=True)  #NOTE: cpu-only has not been tested so you might have to change code if you deactivate this flag
     parser.add_argument('--model', default="erfnet")
     parser.add_argument('--state')
-
     parser.add_argument('--port', type=int, default=8097)
-  
-
-    parser.add_argument('--datadir', default=home_dir + "/datasets/cityscapes/")
-
     parser.add_argument('--datadir', default=os.getenv("HOME") + "/datasets/cityscapes/")
     #parser.add_argument('--datadir', default="C:/Users/nikde/Desktop/MAGISTRALE/SECONDO ANNO/ADVANCE MACHINE/PROJECT/Cityscapes")
-    
-
     parser.add_argument('--height', type=int, default=512)
     parser.add_argument('--num-epochs', type=int, default=150)
     parser.add_argument('--num-workers', type=int, default=4)
@@ -614,10 +621,8 @@ if __name__ == '__main__':
     parser.add_argument('--visualize', action='store_true')
     parser.add_argument('--loss-type', type=str, default='crossentropy',
                     help='Type of loss function: crossentropy | focal | logitnorm | isotropy | logitnorm+ce | isotropy+focal | ecc.')
-
     parser.add_argument('--iouTrain', action='store_true', default=False) #recommended: False (takes more time to train otherwise)
     parser.add_argument('--iouVal', action='store_true', default=True)  
     parser.add_argument('--resume', action='store_true')    #Use this flag to load last checkpoint for training  
 
-    main(parser.parse_args())
-git 
+    main(parser.parse_args()) 
