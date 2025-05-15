@@ -231,7 +231,7 @@ def train(args, model, enc=False):
     if args.model == "erfnet":
         co_transform = MyCoTransform(enc, augment=True, height=args.height)
         co_transform_val = MyCoTransform(enc, augment=False, height=args.height)
-    elif args.model == "enet" and args.model == "bisenetv1":
+    elif args.model == "enet" or args.model == "bisenetv1":
         co_transform = EnetCoTransform(augment=True, height=args.height)
         co_transform_val = EnetCoTransform(augment=False, height=args.height)
     
@@ -241,9 +241,12 @@ def train(args, model, enc=False):
     loader = DataLoader(dataset_train, num_workers=args.num_workers, batch_size=args.batch_size, shuffle=True)
     loader_val = DataLoader(dataset_val, num_workers=args.num_workers, batch_size=args.batch_size, shuffle=False)
 
-    if args.cuda:
+    if args.cuda and args.model == "erfnet":
       weight = weight.cuda()
-    criterion = get_loss_function(args.loss_type, weight)
+    if args.model == "erfnet":
+        criterion = get_loss_function(args.loss_type, weight)
+    else:
+        criterion = get_loss_function(args.loss_type)
     print(f"Using loss: {args.loss_type}")
 
     savedir = f'../save/{args.savedir}'
@@ -318,13 +321,13 @@ def train(args, model, enc=False):
             #print (np.unique(labels.numpy()))
             #print("labels: ", np.unique(labels[0].numpy()))
             #labels = torch.ones(4, 1, 512, 1024).long()
-            optimizer.zero_grad()
             if args.cuda:
                 images = images.cuda()
                 labels = labels.cuda()
 
             inputs = Variable(images)
             targets = Variable(labels)
+            optimizer.zero_grad()
             if args.model == "erfnet":
                 outputs = model(inputs, only_encode=enc)
                 loss = criterion(outputs, targets[:, 0])
@@ -603,10 +606,10 @@ def main(args):
 if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument('--cuda', action='store_true', default=True)  #NOTE: cpu-only has not been tested so you might have to change code if you deactivate this flag
-    parser.add_argument('--model', default="erfnet")
+    parser.add_argument('--model', default="erfnet", help='Model to use: erfnet | enet | bisenetv1')
     parser.add_argument('--state')
     parser.add_argument('--port', type=int, default=8097)
-    parser.add_argument('--datadir', default=os.getenv("HOME") + "/datasets/cityscapes/")
+    parser.add_argument('--datadir', default=os.getenv("HOME") + "/datasets/cityscapes/", help='Path to dataset directory')
     #parser.add_argument('--datadir', default="C:/Users/nikde/Desktop/MAGISTRALE/SECONDO ANNO/ADVANCE MACHINE/PROJECT/Cityscapes")
     parser.add_argument('--height', type=int, default=512)
     parser.add_argument('--num-epochs', type=int, default=150)
