@@ -21,6 +21,7 @@ from torchvision.transforms import ToTensor, ToPILImage
 from dataset import cityscapes
 from erfnet import ERFNet
 from enet import ENet
+from bisenetv1 import BiSeNetV1
 from transform import Relabel, ToLabel, Colorize
 from iouEval import iouEval, getColorEntry
 
@@ -50,6 +51,8 @@ def main(args):
         model = ERFNet(NUM_CLASSES)
     elif args.loadModel == "enet.py": 
         model = ENet(NUM_CLASSES)
+    elif args.loadModel == "bisenetv1.py":
+        model = BiSeNetV1(NUM_CLASSES)
 
     #model = torch.nn.DataParallel(model)
     if (not args.cpu):
