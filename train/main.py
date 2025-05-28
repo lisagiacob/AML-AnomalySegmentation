@@ -29,6 +29,10 @@ from iouEval import iouEval, getColorEntry
 from shutil import copyfile
 import torch.nn.functional as F
 
+from collections import Counter
+import numpy as np
+from tqdm import tqdm
+
 NUM_CHANNELS = 3
 NUM_CLASSES = 20 #pascal=22, cityscapes=20
 
@@ -183,7 +187,7 @@ def train(args, model, enc=False):
     #create a loder to run all images and calculate histogram of labels, then create weight array using class balancing
 
     weight = torch.ones(NUM_CLASSES)
-    if (enc):
+    if (enc and args.model == "erfnet"):
         weight[0] = 2.3653597831726	
         weight[1] = 4.4237880706787	
         weight[2] = 2.9691488742828	
@@ -203,7 +207,7 @@ def train(args, model, enc=False):
         weight[16] = 5.433765411377	
         weight[17] = 5.4631009101868	
         weight[18] = 5.3947434425354
-    else:
+    elif not enc and args.model == "erfnet":
         weight[0] = 2.8149201869965	
         weight[1] = 6.9850029945374	
         weight[2] = 3.7890393733978	
@@ -222,7 +226,28 @@ def train(args, model, enc=False):
         weight[15] = 10.287888526917	
         weight[16] = 10.289801597595	
         weight[17] = 10.405355453491	
-        weight[18] = 10.138095855713	
+        weight[18] = 10.138095855713
+    else:
+        weight[0]  = 0.05749461494438303   # road
+        weight[1]  = 0.33393575727571856   # sidewalk
+        weight[2]  = 0.09300840061818595   # building
+        weight[3]  = 1.069356175700148     # wall
+        weight[4]  = 1.0670317701641996    # fence
+        weight[5]  = 1.7366507242543063    # pole
+        weight[6]  = 5.747970437863489     # traffic-light
+        weight[7]  = 3.670816571454112     # traffic-sign
+        weight[8]  = 0.1313745935016086    # vegetation
+        weight[9]  = 1.0321980880219366    # terrain
+        weight[10] = 0.4849822246648234    # sky
+        weight[11] = 1.3910532474949333    # person
+        weight[12] = 5.481691283227556     # rider
+        weight[13] = 0.2924450717737152    # car
+        weight[14] = 0.9697499025770556    # truck
+        weight[15] = 0.8411727292719605    # bus
+        weight[16] = 0.4404892260506257    # train
+        weight[17] = 3.75885185752387      # motorcycle
+        weight[18] = 2.8747245416888627    # bicycle
+        weight[19] = 0.16401584690023238   # void / ignore	
 
     weight[19] = 0
 
@@ -237,16 +262,29 @@ def train(args, model, enc=False):
     
     dataset_train = cityscapes(args.datadir, co_transform, 'train')
     dataset_val = cityscapes(args.datadir, co_transform_val, 'val')
+    
+    '''
+    #Calculate class weights
+    freq = Counter()
+    img_freq = Counter()
+    for _, lbl in tqdm(dataset_train):   
+        lbl = np.array(lbl)
+        present = np.unique(lbl)
+        for c in present:
+            img_freq[c] += 1
+            freq[c] += (lbl == c).sum()
+
+    median = np.median([freq[c]/img_freq[c] for c in freq])
+    weights = {c: median / (freq[c]/img_freq[c]) for c in freq}
+    '''
+    print("Class weights: ", weight)
 
     loader = DataLoader(dataset_train, num_workers=args.num_workers, batch_size=args.batch_size, shuffle=True)
     loader_val = DataLoader(dataset_val, num_workers=args.num_workers, batch_size=args.batch_size, shuffle=False)
 
-    if args.cuda and args.model == "erfnet":
+    if args.cuda:
       weight = weight.cuda()
-    if args.model == "erfnet":
-        criterion = get_loss_function(args.loss_type, weight)
-    else:
-        criterion = get_loss_function(args.loss_type)
+    criterion = get_loss_function(args.loss_type, weight)
     print(f"Using loss: {args.loss_type}")
 
     savedir = f'../save/{args.savedir}'
@@ -269,7 +307,10 @@ def train(args, model, enc=False):
     #TODO: reduce memory in first gpu: https://discuss.pytorch.org/t/multi-gpu-training-memory-usage-in-balance/4163/4        #https://github.com/pytorch/pytorch/issues/1893
 
     #optimizer = Adam(model.parameters(), 5e-4, (0.9, 0.999),  eps=1e-08, weight_decay=2e-4)     ## scheduler 1
-    optimizer = Adam(model.parameters(), 5e-4, (0.9, 0.999),  eps=1e-08, weight_decay=1e-4)      ## scheduler 2
+    if args.model == "enet":
+        optimizer = Adam(model.parameters(), lr=5e-4, betas=(0.9, 0.999), weight_decay=0.0002)
+    elif args.model == "erfnet":
+        optimizer = Adam(model.parameters(), 5e-4, (0.9, 0.999),  eps=1e-08, weight_decay=1e-4)      ## scheduler 2
 
     start_epoch = 1
     if args.resume:
@@ -289,7 +330,7 @@ def train(args, model, enc=False):
 
     #scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5) # set up scheduler     ## scheduler 1
     lambda1 = lambda epoch: pow((1-((epoch-1)/args.num_epochs)),0.9)  ## scheduler 2
-    scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda1)                             ## scheduler 2
+    scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda1) ## scheduler 2
 
     if args.visualize and args.steps_plot > 0:
         board = Dashboard(args.port)
