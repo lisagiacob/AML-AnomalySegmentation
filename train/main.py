@@ -27,6 +27,11 @@ import importlib
 from iouEval import iouEval, getColorEntry
 
 from shutil import copyfile
+import torch.nn.functional as F
+
+from collections import Counter
+import numpy as np
+from tqdm import tqdm
 
 NUM_CHANNELS = 3
 NUM_CLASSES = 20 #pascal=22, cityscapes=20
@@ -105,6 +110,76 @@ class CrossEntropyLoss2d(torch.nn.Module):
         return self.loss(torch.nn.functional.log_softmax(outputs, dim=1), targets)
 
 
+class FocalLoss(torch.nn.Module):
+    def __init__(self, gamma=2.0, weight=None):
+        super().__init__()
+        self.gamma = gamma
+        self.weight = weight
+
+    def forward(self, inputs, targets):
+        logpt = F.log_softmax(inputs, dim=1)
+        pt = torch.exp(logpt)
+        logpt = (1 - pt) ** self.gamma * logpt
+        return F.nll_loss(logpt, targets, weight=self.weight)
+
+
+class LogitNormLoss(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, outputs, targets):
+        normed_outputs = outputs / (torch.norm(outputs, dim=1, keepdim=True) + 1e-6)
+        return F.cross_entropy(normed_outputs, targets)
+
+
+class EnhancedIsotropyLoss(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, outputs):
+        batch, c, h, w = outputs.size()
+        features = outputs.permute(0, 2, 3, 1).reshape(-1, c)
+        features = F.normalize(features, dim=1)
+        gram = features.T @ features / features.size(0)
+        identity = torch.eye(c, device=gram.device)
+        return torch.norm(gram - identity, p='fro')
+
+
+def get_loss_function(loss_type, weight=None):
+    
+    if loss_type == 'crossentropy':
+        return CrossEntropyLoss2d(weight)
+    elif loss_type == 'focal':
+        return FocalLoss(weight=weight)
+    elif loss_type == 'logitnorm':
+        return LogitNormLoss()
+    elif loss_type == 'eim':
+        return EnhancedIsotropyLoss()
+
+    
+    elif loss_type == 'logitnorm+ce':
+        ce = CrossEntropyLoss2d(weight)
+        ln = LogitNormLoss()
+        return lambda out, tgt: ce(out, tgt) + ln(out, tgt)
+
+    elif loss_type == 'eim+ce':
+        ce = CrossEntropyLoss2d(weight)
+        eim = EnhancedIsotropyLoss()
+        return lambda out, tgt: ce(out, tgt) + 0.1 * eim(out)
+
+    elif loss_type == 'logitnorm+focal':
+        focal = FocalLoss(weight=weight)
+        ln = LogitNormLoss()
+        return lambda out, tgt: focal(out, tgt) + ln(out, tgt)
+
+    elif loss_type == 'eim+focal':
+        focal = FocalLoss(weight=weight)
+        eim = EnhancedIsotropyLoss()
+        return lambda out, tgt: focal(out, tgt) + 0.1 * eim(out)
+
+    else:
+        raise ValueError(f"Unsupported loss type: {loss_type}")
+
 def train(args, model, enc=False):
     best_acc = 0
 
@@ -112,7 +187,7 @@ def train(args, model, enc=False):
     #create a loder to run all images and calculate histogram of labels, then create weight array using class balancing
 
     weight = torch.ones(NUM_CLASSES)
-    if (enc):
+    if (enc and args.model == "erfnet"):
         weight[0] = 2.3653597831726	
         weight[1] = 4.4237880706787	
         weight[2] = 2.9691488742828	
@@ -132,7 +207,7 @@ def train(args, model, enc=False):
         weight[16] = 5.433765411377	
         weight[17] = 5.4631009101868	
         weight[18] = 5.3947434425354
-    else:
+    elif not enc and args.model == "erfnet":
         weight[0] = 2.8149201869965	
         weight[1] = 6.9850029945374	
         weight[2] = 3.7890393733978	
@@ -151,7 +226,28 @@ def train(args, model, enc=False):
         weight[15] = 10.287888526917	
         weight[16] = 10.289801597595	
         weight[17] = 10.405355453491	
-        weight[18] = 10.138095855713	
+        weight[18] = 10.138095855713
+    else:
+        weight[0]  = 0.05749461494438303   # road
+        weight[1]  = 0.33393575727571856   # sidewalk
+        weight[2]  = 0.09300840061818595   # building
+        weight[3]  = 1.069356175700148     # wall
+        weight[4]  = 1.0670317701641996    # fence
+        weight[5]  = 1.7366507242543063    # pole
+        weight[6]  = 5.747970437863489     # traffic-light
+        weight[7]  = 3.670816571454112     # traffic-sign
+        weight[8]  = 0.1313745935016086    # vegetation
+        weight[9]  = 1.0321980880219366    # terrain
+        weight[10] = 0.4849822246648234    # sky
+        weight[11] = 1.3910532474949333    # person
+        weight[12] = 5.481691283227556     # rider
+        weight[13] = 0.2924450717737152    # car
+        weight[14] = 0.9697499025770556    # truck
+        weight[15] = 0.8411727292719605    # bus
+        weight[16] = 0.4404892260506257    # train
+        weight[17] = 3.75885185752387      # motorcycle
+        weight[18] = 2.8747245416888627    # bicycle
+        weight[19] = 0.16401584690023238   # void / ignore	
 
     weight[19] = 0
 
@@ -160,20 +256,36 @@ def train(args, model, enc=False):
     if args.model == "erfnet":
         co_transform = MyCoTransform(enc, augment=True, height=args.height)
         co_transform_val = MyCoTransform(enc, augment=False, height=args.height)
-    elif args.model == "enet":
+    elif args.model == "enet" or args.model == "bisenetv1":
         co_transform = EnetCoTransform(augment=True, height=args.height)
         co_transform_val = EnetCoTransform(augment=False, height=args.height)
     
     dataset_train = cityscapes(args.datadir, co_transform, 'train')
     dataset_val = cityscapes(args.datadir, co_transform_val, 'val')
+    
+    '''
+    #Calculate class weights
+    freq = Counter()
+    img_freq = Counter()
+    for _, lbl in tqdm(dataset_train):   
+        lbl = np.array(lbl)
+        present = np.unique(lbl)
+        for c in present:
+            img_freq[c] += 1
+            freq[c] += (lbl == c).sum()
+
+    median = np.median([freq[c]/img_freq[c] for c in freq])
+    weights = {c: median / (freq[c]/img_freq[c]) for c in freq}
+    '''
+    print("Class weights: ", weight)
 
     loader = DataLoader(dataset_train, num_workers=args.num_workers, batch_size=args.batch_size, shuffle=True)
     loader_val = DataLoader(dataset_val, num_workers=args.num_workers, batch_size=args.batch_size, shuffle=False)
 
     if args.cuda:
-        weight = weight.cuda()
-    criterion = CrossEntropyLoss2d(weight)
-    print(type(criterion))
+      weight = weight.cuda()
+    criterion = get_loss_function(args.loss_type, weight)
+    print(f"Using loss: {args.loss_type}")
 
     savedir = f'../save/{args.savedir}'
 
@@ -195,7 +307,10 @@ def train(args, model, enc=False):
     #TODO: reduce memory in first gpu: https://discuss.pytorch.org/t/multi-gpu-training-memory-usage-in-balance/4163/4        #https://github.com/pytorch/pytorch/issues/1893
 
     #optimizer = Adam(model.parameters(), 5e-4, (0.9, 0.999),  eps=1e-08, weight_decay=2e-4)     ## scheduler 1
-    optimizer = Adam(model.parameters(), 5e-4, (0.9, 0.999),  eps=1e-08, weight_decay=1e-4)      ## scheduler 2
+    if args.model == "enet":
+        optimizer = Adam(model.parameters(), lr=5e-4, betas=(0.9, 0.999), weight_decay=0.0002)
+    elif args.model == "erfnet":
+        optimizer = Adam(model.parameters(), 5e-4, (0.9, 0.999),  eps=1e-08, weight_decay=1e-4)      ## scheduler 2
 
     start_epoch = 1
     if args.resume:
@@ -215,7 +330,7 @@ def train(args, model, enc=False):
 
     #scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5) # set up scheduler     ## scheduler 1
     lambda1 = lambda epoch: pow((1-((epoch-1)/args.num_epochs)),0.9)  ## scheduler 2
-    scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda1)                             ## scheduler 2
+    scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda1) ## scheduler 2
 
     if args.visualize and args.steps_plot > 0:
         board = Dashboard(args.port)
@@ -253,14 +368,22 @@ def train(args, model, enc=False):
 
             inputs = Variable(images)
             targets = Variable(labels)
+            optimizer.zero_grad()
             if args.model == "erfnet":
                 outputs = model(inputs, only_encode=enc)
+                loss = criterion(outputs, targets[:, 0])
             elif args.model == "enet":
                 outputs = model(inputs)
+                loss = criterion(outputs, targets[:, 0])
+            elif args.model == "bisenetv1":
+                outputs, aux1, aux2 = model(inputs)
+                loss1 = criterion(outputs, targets[:, 0])
+                loss2 = criterion(aux1, targets[:, 0])
+                loss3 = criterion(aux2, targets[:, 0])
+                loss = loss1 + 0.4 * (loss2 + loss3)  # Pesi delle perdite ausiliarie
 
             #print("targets", np.unique(targets[:, 0].cpu().data.numpy()))
 
-            optimizer.zero_grad()
             loss = criterion(outputs, targets[:, 0])
             loss.backward()
             optimizer.step()
@@ -324,10 +447,17 @@ def train(args, model, enc=False):
             targets = Variable(labels, volatile=True)
             if args.model == "erfnet":
                 outputs = model(inputs, only_encode=enc)
+                loss = criterion(outputs, targets[:, 0])
             elif args.model == "enet":
                 outputs = model(inputs)
+                loss = criterion(outputs, targets[:, 0])
+            elif args.model == "bisenetv1":
+                outputs, aux1, aux2 = model(inputs)
+                loss1 = criterion(outputs, targets[:, 0])
+                loss2 = criterion(aux1, targets[:, 0])
+                loss3 = criterion(aux2, targets[:, 0])
+                loss = loss1 + 0.4 * (loss2 + loss3)  # Pesi delle perdite ausiliarie
 
-            loss = criterion(outputs, targets[:, 0])
             epoch_loss_val.append(loss.data.item())
             time_val.append(time.time() - start_time)
 
@@ -517,11 +647,11 @@ def main(args):
 if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument('--cuda', action='store_true', default=True)  #NOTE: cpu-only has not been tested so you might have to change code if you deactivate this flag
-    parser.add_argument('--model', default="erfnet")
+    parser.add_argument('--model', default="erfnet", help='Model to use: erfnet | enet | bisenetv1')
     parser.add_argument('--state')
-
     parser.add_argument('--port', type=int, default=8097)
-    parser.add_argument('--datadir', default=os.getenv("HOME") + "/datasets/cityscapes/")
+    parser.add_argument('--datadir', default=os.getenv("HOME") + "/datasets/cityscapes/", help='Path to dataset directory')
+    #parser.add_argument('--datadir', default="C:/Users/nikde/Desktop/MAGISTRALE/SECONDO ANNO/ADVANCE MACHINE/PROJECT/Cityscapes")
     parser.add_argument('--height', type=int, default=512)
     parser.add_argument('--num-epochs', type=int, default=150)
     parser.add_argument('--num-workers', type=int, default=4)
@@ -533,9 +663,10 @@ if __name__ == '__main__':
     parser.add_argument('--decoder', action='store_true')
     parser.add_argument('--pretrainedEncoder') #, default="../trained_models/erfnet_encoder_pretrained.pth.tar")
     parser.add_argument('--visualize', action='store_true')
-
+    parser.add_argument('--loss-type', type=str, default='crossentropy',
+                    help='Type of loss function: crossentropy | focal | logitnorm | isotropy | logitnorm+ce | isotropy+focal | ecc.')
     parser.add_argument('--iouTrain', action='store_true', default=False) #recommended: False (takes more time to train otherwise)
     parser.add_argument('--iouVal', action='store_true', default=True)  
     parser.add_argument('--resume', action='store_true')    #Use this flag to load last checkpoint for training  
 
-    main(parser.parse_args())
+    main(parser.parse_args()) 

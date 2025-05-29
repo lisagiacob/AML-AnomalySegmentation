@@ -5,3 +5,4 @@ __pycache__/
 datasets/
 Validation_Dataset/
 cod_Lisa
+*.tar
