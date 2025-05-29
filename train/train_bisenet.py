@@ -38,10 +38,8 @@ def train():
     print("\n".join(train_dataset.filenames[:5]))
     print("[ESEMPI label]")
     print("\n".join(train_dataset.filenamesGt[:5]))
-    print(f"{train_dataset.images_root}")
-    print(f"{train_dataset.labels_root}")
     #train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True, num_workers=4)
-    train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True, num_workers=0)
+    train_loader = DataLoader(train_dataset, batch_size=6, shuffle=True, num_workers=0)
 
     # Inizializzazione del modello BiSeNetV1
     model = BiSeNetV1(n_classes=20, aux_mode='train')
@@ -55,7 +53,7 @@ def train():
 
     # Ciclo di addestramento
     model.train()
-    for epoch in range(50):  # numero di epoche
+    for epoch in range(80):  # numero di epoche
         epoch_loss = 0.0
         for images, labels in train_loader:
             images = images.to(device)
@@ -74,6 +72,7 @@ def train():
             epoch_loss += loss.item()
 
         print(f"Epoch {epoch+1}/50 - Avg Loss: {epoch_loss / len(train_loader):.4f}")
+        if (epoch + 1) % 10 == 0: torch.save(model.state_dict(), f"bisenet_cityscapes_epoch{epoch+1}.pth")
 
         # Calcolo della mIoU a fine epoca
         model.eval()
