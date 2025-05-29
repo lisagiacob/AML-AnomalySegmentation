@@ -311,6 +311,8 @@ def train(args, model, enc=False):
         optimizer = Adam(model.parameters(), lr=5e-4, betas=(0.9, 0.999), weight_decay=0.0002)
     elif args.model == "erfnet":
         optimizer = Adam(model.parameters(), 5e-4, (0.9, 0.999),  eps=1e-08, weight_decay=1e-4)      ## scheduler 2
+    elif args.model == "bisenetv1":
+        optimizer = Adam(model.parameters(), lr=1e-3, betas=(0.9, 0.999), weight_decay=1e-4)
 
     start_epoch = 1
     if args.resume:
