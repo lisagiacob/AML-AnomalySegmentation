@@ -341,7 +341,7 @@ def train(args, model, enc=False):
     if(args.model == "erfnet"):
         lambda1 = lambda epoch: pow((1-((epoch-1)/args.num_epochs)),0.9)  ## scheduler 2
         scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda1) ## scheduler 2
-    elif(args.model == "enet"):
+    elif(args.model == "enet" or args.model == "bisenetv1"):
         max_iter = args.num_epochs * len(loader)
         poly = lambda it: (1 - it/max_iter) ** 0.9
         scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, poly)
