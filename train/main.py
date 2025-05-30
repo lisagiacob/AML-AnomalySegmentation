@@ -285,7 +285,12 @@ def train(args, model, enc=False):
 
     if args.cuda:
       weight = weight.cuda()
-    criterion = get_loss_function(args.loss_type, weight)
+    if args.model == "erfnet" and args.model == "enet":
+        criterion = get_loss_function(args.loss_type, weight)
+    elif args.model == "bisenetv1":
+        criterion = get_loss_function(args.loss_type, weight=weight)
+        criterion_aux1 = get_loss_function(args.loss_type, weight=weight)
+        criterion_aux2 = get_loss_function(args.loss_type, weight=weight)
     print(f"Using loss: {args.loss_type}")
 
     savedir = f'../save/{args.savedir}'
@@ -314,7 +319,7 @@ def train(args, model, enc=False):
     elif args.model == "erfnet":
         optimizer = Adam(model.parameters(), 5e-4, (0.9, 0.999),  eps=1e-08, weight_decay=1e-4)      ## scheduler 2
     elif args.model == "bisenetv1":
-        optimizer = Adam(model.parameters(), lr=1e-3, betas=(0.9, 0.999), weight_decay=1e-4)
+        optimizer = SGD(model.parameters(), lr=2.5e-2, momentum=0.9, weight_decay=1e-4)
 
     start_epoch = 1
     if args.resume:
@@ -378,7 +383,7 @@ def train(args, model, enc=False):
 
             inputs = Variable(images)
             targets = Variable(labels)
-            with autocast('cuda'):                                             # ① FP16 forward
+            with autocast('cuda'):
                 if args.model == "erfnet":
                     outputs = model(inputs, only_encode=enc)
                 elif args.model == "enet":
@@ -386,16 +391,15 @@ def train(args, model, enc=False):
                 elif args.model == "bisenetv1":
                     outputs, aux1, aux2 = model(inputs)
                     loss1 = criterion(outputs, targets[:, 0])
-                    loss2 = criterion(aux1,     targets[:, 0])
-                    loss3 = criterion(aux2,     targets[:, 0])
+                    loss2 = criterion_aux1(aux1, targets[:, 0])
+                    loss3 = criterion_aux1(aux2, targets[:, 0])
                     loss  = loss1 + 0.4*(loss2+loss3)
                 if args.model != "bisenetv1":
                     loss = criterion(outputs, targets[:,0])
 
-            loss = loss / accum_iter                                   # ② scale for accumulation
-            scaler.scale(loss).backward()                               # ③ scaled backward
+            loss = loss / accum_iter
+            scaler.scale(loss).backward()
 
-            # ④ update only every accum_iter iterations
             if (step + 1) % accum_iter == 0:
                 scaler.step(optimizer)
                 scaler.update()
@@ -468,8 +472,8 @@ def train(args, model, enc=False):
             elif args.model == "bisenetv1":
                 outputs, aux1, aux2 = model(inputs)
                 loss1 = criterion(outputs, targets[:, 0])
-                loss2 = criterion(aux1, targets[:, 0])
-                loss3 = criterion(aux2, targets[:, 0])
+                loss2 = criterion_aux1(aux1, targets[:, 0])
+                loss3 = criterion_aux1(aux2, targets[:, 0])
                 loss = loss1 + 0.4 * (loss2 + loss3)  # Pesi delle perdite ausiliarie
 
             epoch_loss_val.append(loss.data.item())
