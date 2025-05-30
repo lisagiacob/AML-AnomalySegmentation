@@ -18,6 +18,7 @@ from torch.autograd import Variable
 from torch.utils.data import DataLoader
 from torchvision.transforms import Compose, CenterCrop, Normalize, Resize, Pad
 from torchvision.transforms import ToTensor, ToPILImage
+from torch.amp import autocast, GradScaler
 
 from dataset import VOC12,cityscapes
 from transform import Relabel, ToLabel, Colorize
@@ -306,6 +307,7 @@ def train(args, model, enc=False):
 
     #TODO: reduce memory in first gpu: https://discuss.pytorch.org/t/multi-gpu-training-memory-usage-in-balance/4163/4        #https://github.com/pytorch/pytorch/issues/1893
 
+    scaler = GradScaler('cuda')
     #optimizer = Adam(model.parameters(), 5e-4, (0.9, 0.999),  eps=1e-08, weight_decay=2e-4)     ## scheduler 1
     if args.model == "enet":
         optimizer = Adam(model.parameters(), lr=5e-4, betas=(0.9, 0.999), weight_decay=0.0002)
@@ -329,16 +331,22 @@ def train(args, model, enc=False):
         print("=> Loaded checkpoint at epoch {})".format(checkpoint['epoch']))
 
     #scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5) # set up scheduler     ## scheduler 1
-    lambda1 = lambda epoch: pow((1-((epoch-1)/args.num_epochs)),0.9)  ## scheduler 2
-    scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda1) ## scheduler 2
+    if(args.model == "erfnet"):
+        lambda1 = lambda epoch: pow((1-((epoch-1)/args.num_epochs)),0.9)  ## scheduler 2
+        scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda1) ## scheduler 2
+    elif(args.model == "enet"):
+        max_iter = args.num_epochs * len(loader)
+        poly = lambda it: (1 - it/max_iter) ** 0.9
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, poly)
 
     if args.visualize and args.steps_plot > 0:
         board = Dashboard(args.port)
 
+    accum_iter = 2 
     for epoch in range(start_epoch, args.num_epochs+1):
         print("----- TRAINING - EPOCH", epoch, "-----")
 
-        scheduler.step(epoch)    ## scheduler 2
+        #scheduler.step(epoch)    ## scheduler 2
 
         epoch_loss = []
         time_train = []
@@ -368,25 +376,29 @@ def train(args, model, enc=False):
 
             inputs = Variable(images)
             targets = Variable(labels)
-            optimizer.zero_grad()
-            if args.model == "erfnet":
-                outputs = model(inputs, only_encode=enc)
-                loss = criterion(outputs, targets[:, 0])
-            elif args.model == "enet":
-                outputs = model(inputs)
-                loss = criterion(outputs, targets[:, 0])
-            elif args.model == "bisenetv1":
-                outputs, aux1, aux2 = model(inputs)
-                loss1 = criterion(outputs, targets[:, 0])
-                loss2 = criterion(aux1, targets[:, 0])
-                loss3 = criterion(aux2, targets[:, 0])
-                loss = loss1 + 0.4 * (loss2 + loss3)  # Pesi delle perdite ausiliarie
+            with autocast('cuda'):                                             # ① FP16 forward
+                if args.model == "erfnet":
+                    outputs = model(inputs, only_encode=enc)
+                elif args.model == "enet":
+                    outputs = model(inputs)
+                elif args.model == "bisenetv1":
+                    outputs, aux1, aux2 = model(inputs)
+                    loss1 = criterion(outputs, targets[:, 0])
+                    loss2 = criterion(aux1,     targets[:, 0])
+                    loss3 = criterion(aux2,     targets[:, 0])
+                    loss  = loss1 + 0.4*(loss2+loss3)
+                if args.model != "bisenetv1":
+                    loss = criterion(outputs, targets[:,0])
 
-            #print("targets", np.unique(targets[:, 0].cpu().data.numpy()))
+            loss = loss / accum_iter                                   # ② scale for accumulation
+            scaler.scale(loss).backward()                               # ③ scaled backward
 
-            loss = criterion(outputs, targets[:, 0])
-            loss.backward()
-            optimizer.step()
+            # ④ update only every accum_iter iterations
+            if (step + 1) % accum_iter == 0:
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad()
+                scheduler.step()  # scheduler step after optimizer step
 
             epoch_loss.append(loss.data.item())
             time_train.append(time.time() - start_time)
@@ -565,6 +577,7 @@ def main(args):
     assert os.path.exists(args.model + ".py"), "Error: model definition not found"
     model_file = importlib.import_module(args.model)
     model = model_file.Net(NUM_CLASSES)
+    model = model.to(memory_format=torch.channels_last)
     copyfile(args.model + ".py", savedir + '/' + args.model + ".py")
     
     if args.cuda:
