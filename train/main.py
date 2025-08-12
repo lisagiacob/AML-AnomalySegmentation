@@ -229,51 +229,47 @@ def train(args, model, enc=False):
         weight[17] = 10.405355453491	
         weight[18] = 10.138095855713
     elif args.model == "enet":
-        weight = [
-            7.8450451,
-            3.36366406,
-            14.04234086,
-            4.9948856,
-            39.25997007,
-            36.5152765,
-            32.90667927,
-            46.27742179,
-            40.67459427,
-            6.71150498,
-            33.5627786,
-            18.54488148,
-            32.99978951,
-            47.68372067,
-            12.70290829,
-            45.20793195,
-            45.7834263,
-            45.82760469,
-            48.40837536,
-            42.76317799,
-        ]
+        weight[0] = 7.8450451   # road
+        weight[1] = 3.36366406  # sidewalk
+        weight[2] = 14.04234086 # building
+        weight[3] = 4.9948856   # wall
+        weight[4] = 39.25997007 # fence
+        weight[5] = 36.5152765  # pole
+        weight[6] = 32.90667927 # traffic-light
+        weight[7] = 46.27742179 # traffic-sign
+        weight[8] = 40.67459427 # vegetation
+        weight[9] = 6.71150498  # terrain
+        weight[10] = 33.5627786 # sky
+        weight[11] = 18.54488148 # person
+        weight[12] = 32.99978951 # rider
+        weight[13] = 47.68372067 # car
+        weight[14] = 12.70290829 # truck
+        weight[15] = 45.20793195 # bus
+        weight[16] = 45.7834263  # train
+        weight[17] = 45.82760469 # motorcycle
+        weight[18] = 48.40837536 # bicycle
+        weight[19] = 42.76317799 # void / ignore
     elif args.model == "bisenetv1":
-        weight =  [
-            1.4297,
-            1.4805,
-            1.4363,
-            3.365,
-            2.6635,
-            1.4311,
-            2.1943,
-            1.4817,
-            1.4513,
-            2.1984,
-            1.5295,
-            1.6892,
-            3.2224,
-            1.4727,
-            7.5978,
-            9.4117,
-            15.2588,
-            5.6818,
-            2.2067,
-            1,
-        ]
+        weight[0] = 1.4297 
+        weight[1] = 1.4805
+        weight[2] = 1.4363 
+        weight[3] = 3.365
+        weight[4] = 2.6635
+        weight[5] = 1.4311 
+        weight[6] = 2.1943
+        weight[7] = 1.4817   
+        weight[8] = 1.4513
+        weight[9] = 2.1984 
+        weight[10] = 1.5295
+        weight[11] = 1.6892
+        weight[12] = 3.2224
+        weight[13] = 1.4727
+        weight[14] = 7.5978 
+        weight[15] = 9.4117  
+        weight[16] = 15.2588
+        weight[17] = 5.6818  
+        weight[18] = 2.2067
+        weight[19] = 1.0 
     else:
         weight[0]  = 0.05749461494438303   # road
         weight[1]  = 0.33393575727571856   # sidewalk
