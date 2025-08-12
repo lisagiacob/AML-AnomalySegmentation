@@ -228,6 +228,52 @@ def train(args, model, enc=False):
         weight[16] = 10.289801597595	
         weight[17] = 10.405355453491	
         weight[18] = 10.138095855713
+    elif args.model == "enet":
+        weight = [
+            7.8450451,
+            3.36366406,
+            14.04234086,
+            4.9948856,
+            39.25997007,
+            36.5152765,
+            32.90667927,
+            46.27742179,
+            40.67459427,
+            6.71150498,
+            33.5627786,
+            18.54488148,
+            32.99978951,
+            47.68372067,
+            12.70290829,
+            45.20793195,
+            45.7834263,
+            45.82760469,
+            48.40837536,
+            42.76317799,
+        ]
+    elif args.model == "bisenetv1":
+        weight =  [
+            1.4297,
+            1.4805,
+            1.4363,
+            3.365,
+            2.6635,
+            1.4311,
+            2.1943,
+            1.4817,
+            1.4513,
+            2.1984,
+            1.5295,
+            1.6892,
+            3.2224,
+            1.4727,
+            7.5978,
+            9.4117,
+            15.2588,
+            5.6818,
+            2.2067,
+            1,
+        ]
     else:
         weight[0]  = 0.05749461494438303   # road
         weight[1]  = 0.33393575727571856   # sidewalk
@@ -250,7 +296,7 @@ def train(args, model, enc=False):
         weight[18] = 2.8747245416888627    # bicycle
         weight[19] = 0.16401584690023238   # void / ignore	
 
-    weight[19] = 0
+    #weight[19] = 0
 
     assert os.path.exists(args.datadir), "Error: datadir (dataset directory) could not be loaded"
 
@@ -285,7 +331,7 @@ def train(args, model, enc=False):
 
     if args.cuda:
       weight = weight.cuda()
-    if args.model == "erfnet" and args.model == "enet":
+    if args.model == "erfnet" or args.model == "enet":
         criterion = get_loss_function(args.loss_type, weight)
     elif args.model == "bisenetv1":
         criterion = get_loss_function(args.loss_type, weight=weight)
@@ -392,7 +438,7 @@ def train(args, model, enc=False):
                     outputs, aux1, aux2 = model(inputs)
                     loss1 = criterion(outputs, targets[:, 0])
                     loss2 = criterion_aux1(aux1, targets[:, 0])
-                    loss3 = criterion_aux1(aux2, targets[:, 0])
+                    loss3 = criterion_aux2(aux2, targets[:, 0])
                     loss  = loss1 + 0.4*(loss2+loss3)
                 if args.model != "bisenetv1":
                     loss = criterion(outputs, targets[:,0])
@@ -473,7 +519,7 @@ def train(args, model, enc=False):
                 outputs, aux1, aux2 = model(inputs)
                 loss1 = criterion(outputs, targets[:, 0])
                 loss2 = criterion_aux1(aux1, targets[:, 0])
-                loss3 = criterion_aux1(aux2, targets[:, 0])
+                loss3 = criterion_aux2(aux2, targets[:, 0])
                 loss = loss1 + 0.4 * (loss2 + loss3)  # Pesi delle perdite ausiliarie
 
             epoch_loss_val.append(loss.data.item())
