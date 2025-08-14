@@ -98,6 +98,54 @@ class EnetCoTransform(object):
         target = Relabel(255, 19)(target)
 
         return input, target
+    
+class BiseNetCoTransform(object):
+    def __init__(self, augment=True, height=512, scales=(0.75, 1.0, 1.5, 1.75, 2.0),
+                 mean=(0.485,0.456,0.406), std=(0.229,0.224,0.225)):
+        self.augment = augment
+        self.height = height
+        self.width = 2*height
+        self.scales = scales
+        self.mean, self.std = mean, std
+
+    def __call__(self, input, target):
+        # random scale (keep aspect)
+        if self.augment:
+            s = random.choice(self.scales)
+            new_h = int(self.height * s)
+            new_w = int(self.width * s)
+            input  = input.resize((new_w, new_h), Image.BILINEAR)
+            target = target.resize((new_w, new_h), Image.NEAREST)
+            # random crop to (height, 2*height)
+            if new_h >= self.height and new_w >= self.width:
+                top = random.randint(0, new_h - self.height)
+                left = random.randint(0, new_w - self.width)
+                input  = input.crop((left, top, left + self.width, top + self.height))
+                target = target.crop((left, top, left + self.width, top + self.height))
+            else:
+                # fallback: center-pad then center-crop
+                pad_h = max(self.height - new_h, 0)
+                pad_w = max(self.width  - new_w, 0)
+                if pad_h or pad_w:
+                    input  = ImageOps.expand(input,  border=(pad_w//2, pad_h//2, pad_w-pad_w//2, pad_h-pad_h//2), fill=0)
+                    target = ImageOps.expand(target, border=(pad_w//2, pad_h//2, pad_w-pad_w//2, pad_h-pad_h//2), fill=255)
+                input  = input.crop((0, 0, self.width, self.height))
+                target = target.crop((0, 0, self.width, self.height))
+            # random hflip
+            if random.random() < 0.5:
+                input = input.transpose(Image.FLIP_LEFT_RIGHT)
+                target = target.transpose(Image.FLIP_LEFT_RIGHT)
+        else:
+            # deterministic resize to 512x1024
+            input  = input.resize((self.width, self.height), Image.BILINEAR)
+            target = target.resize((self.width, self.height), Image.NEAREST)
+
+        # tensor + normalization (BiSeNet uses mean subtraction)
+        input = ToTensor()(input)
+        input = Normalize(self.mean, self.std)(input)
+        target = ToLabel()(target)
+        target = Relabel(255, 19)(target)  # keep 20-class training (void head learns)
+        return input, target
 
 
 class CrossEntropyLoss2d(torch.nn.Module):
@@ -125,12 +173,13 @@ class FocalLoss(torch.nn.Module):
 
 
 class LogitNormLoss(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, s=1.0, weight=None, ignore_index=255):
         super().__init__()
-
-    def forward(self, outputs, targets):
-        normed_outputs = outputs / (torch.norm(outputs, dim=1, keepdim=True) + 1e-6)
-        return F.cross_entropy(normed_outputs, targets)
+        self.s = s
+        self.ce = torch.nn.CrossEntropyLoss(weight=weight, ignore_index=ignore_index)
+    def forward(self, logits, targets):
+        z = F.normalize(logits, p=2, dim=1) * self.s
+        return self.ce(z, targets)
 
 
 class EnhancedIsotropyLoss(torch.nn.Module):
@@ -299,9 +348,12 @@ def train(args, model, enc=False):
     if args.model == "erfnet":
         co_transform = MyCoTransform(enc, augment=True, height=args.height)
         co_transform_val = MyCoTransform(enc, augment=False, height=args.height)
-    elif args.model == "enet" or args.model == "bisenetv1":
+    elif args.model == "enet":
         co_transform = EnetCoTransform(augment=True, height=args.height)
         co_transform_val = EnetCoTransform(augment=False, height=args.height)
+    elif args.model == "bisenetv1":
+        co_transform = BiseNetCoTransform(augment=True, height=args.height)
+        co_transform_val = BiseNetCoTransform(augment=False, height=args.height)
     
     dataset_train = cityscapes(args.datadir, co_transform, 'train')
     dataset_val = cityscapes(args.datadir, co_transform_val, 'val')
@@ -335,7 +387,10 @@ def train(args, model, enc=False):
         criterion_aux2 = get_loss_function(args.loss_type, weight=weight)
     print(f"Using loss: {args.loss_type}")
 
-    savedir = f'../save/{args.savedir}'
+    if args.colab:
+        savedir = f'/content/drive/MyDrive/AML_project/{args.savedir}'
+    else:
+        savedir = f'../save/{args.savedir}'
 
     if (enc):
         automated_log_path = savedir + "/automated_log_encoder.txt"
@@ -380,18 +435,24 @@ def train(args, model, enc=False):
         print("=> Loaded checkpoint at epoch {})".format(checkpoint['epoch']))
 
     #scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5) # set up scheduler     ## scheduler 1
+    
+    accum_iter = 2 
+
     if(args.model == "erfnet"):
         lambda1 = lambda epoch: pow((1-((epoch-1)/args.num_epochs)),0.9)  ## scheduler 2
         scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda1) ## scheduler 2
-    elif(args.model == "enet" or args.model == "bisenetv1"):
+    elif(args.model == "enet"):
         max_iter = args.num_epochs * len(loader)
         poly = lambda it: (1 - it/max_iter) ** 0.9
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, poly)
+    elif(args.model == "bisenetv1"):
+        max_iter = (args.num_epochs * len(loader)) // accum_iter
+        poly = lambda it: (1 - it / max_iter) ** 0.9
         scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, poly)
 
     if args.visualize and args.steps_plot > 0:
         board = Dashboard(args.port)
 
-    accum_iter = 2 
     for epoch in range(start_epoch, args.num_epochs+1):
         print("----- TRAINING - EPOCH", epoch, "-----")
 
@@ -435,7 +496,7 @@ def train(args, model, enc=False):
                     loss1 = criterion(outputs, targets[:, 0])
                     loss2 = criterion_aux1(aux1, targets[:, 0])
                     loss3 = criterion_aux2(aux2, targets[:, 0])
-                    loss  = loss1 + 0.4*(loss2+loss3)
+                    loss  = loss1 + 0.7*(loss2+loss3)
                 if args.model != "bisenetv1":
                     loss = criterion(outputs, targets[:,0])
 
@@ -516,7 +577,7 @@ def train(args, model, enc=False):
                 loss1 = criterion(outputs, targets[:, 0])
                 loss2 = criterion_aux1(aux1, targets[:, 0])
                 loss3 = criterion_aux2(aux2, targets[:, 0])
-                loss = loss1 + 0.4 * (loss2 + loss3)  # Pesi delle perdite ausiliarie
+                loss = loss1 + 0.7 * (loss2 + loss3)  # Pesi delle perdite ausiliarie
 
             epoch_loss_val.append(loss.data.item())
             time_val.append(time.time() - start_time)
@@ -613,7 +674,10 @@ def save_checkpoint(state, is_best, filenameCheckpoint, filenameBest):
 
 
 def main(args):
-    savedir = f'../save/{args.savedir}'
+    if args.colab:
+        savedir = f'/content/drive/MyDrive/AML_project/{args.savedir}'
+    else:
+        savedir = f'../save/{args.savedir}'
 
     if not os.path.exists(savedir):
         os.makedirs(savedir)
@@ -644,6 +708,7 @@ def main(args):
         #state_dict = {k.partition('model.')[2]: v for k,v in state_dict}
         #https://discuss.pytorch.org/t/prefix-parameter-names-in-saved-model-if-trained-by-multi-gpu/494
         """
+        """
         def load_my_state_dict(model, state_dict):  #custom function to load model when not all dict keys are there
             own_state = model.state_dict()
             for name, param in state_dict.items():
@@ -654,6 +719,29 @@ def main(args):
 
         #print(torch.load(args.state))
         model = load_my_state_dict(model, torch.load(args.state))
+        """
+        
+        def load_my_state_dict(model, state_dict):
+            own_state = model.state_dict()
+            for name, param in state_dict.items():
+                if name not in own_state:
+                    if name.startswith('module.'):
+                        own_state[name.split('module.')[-1]].copy_(param)
+                    else:
+                        print(name, ' not loaded')
+                        continue
+                else:
+                    own_state[name].copy_(param)
+            return model
+
+        modelpath = args.state
+        if args.model == 'erfnet' or args.model == 'erfnet_isomax_plus':
+            model = load_my_state_dict(model, torch.load(modelpath))
+        elif args.model == 'enet':
+            model = load_my_state_dict(model.module, torch.load(modelpath)['state_dict'])
+        elif args.model == 'bisenetv1':
+            model = load_my_state_dict(model, torch.load(modelpath))
+
 
     """
     def weights_init(m):
@@ -728,6 +816,7 @@ if __name__ == '__main__':
                     help='Type of loss function: crossentropy | focal | logitnorm | isotropy | logitnorm+ce | isotropy+focal | ecc.')
     parser.add_argument('--iouTrain', action='store_true', default=False) #recommended: False (takes more time to train otherwise)
     parser.add_argument('--iouVal', action='store_true', default=True)  
-    parser.add_argument('--resume', action='store_true')    #Use this flag to load last checkpoint for training  
+    parser.add_argument('--resume', action='store_true')    #Use this flag to load last checkpoint for training
+    parser.add_argument('--colab', action='store_true', default=False, help='If set to true, it will use colab options and save dir')
 
     main(parser.parse_args()) 
