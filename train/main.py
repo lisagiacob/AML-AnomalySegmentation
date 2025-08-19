@@ -409,12 +409,14 @@ def train(args, model, enc=False):
 
     #TODO: reduce memory in first gpu: https://discuss.pytorch.org/t/multi-gpu-training-memory-usage-in-balance/4163/4        #https://github.com/pytorch/pytorch/issues/1893
 
-    scaler = GradScaler('cuda')
+    use_amp = not (args.model == "erfnet" and enc)
+    scaler  = GradScaler('cuda', enabled=use_amp)
     #optimizer = Adam(model.parameters(), 5e-4, (0.9, 0.999),  eps=1e-08, weight_decay=2e-4)     ## scheduler 1
     if args.model == "enet":
         optimizer = Adam(model.parameters(), lr=5e-4, betas=(0.9, 0.999), weight_decay=0.0002)
     elif args.model == "erfnet":
-        optimizer = Adam(model.parameters(), 5e-4, (0.9, 0.999),  eps=1e-08, weight_decay=1e-4)      ## scheduler 2
+        model.float()
+        optimizer =Adam(model.parameters(), lr=5e-4, betas=(0.9, 0.999), eps=1e-6, weight_decay=1e-4, foreach=False, fused=False)
     elif args.model == "bisenetv1":
         optimizer = SGD(model.parameters(), lr=2.5e-2, momentum=0.9, weight_decay=1e-4)
 
@@ -486,7 +488,7 @@ def train(args, model, enc=False):
 
             inputs = Variable(images)
             targets = Variable(labels)
-            with autocast('cuda'):
+            with autocast('cuda', enabled=use_amp):
                 if args.model == "erfnet":
                     outputs = model(inputs, only_encode=enc)
                 elif args.model == "enet":
@@ -504,10 +506,15 @@ def train(args, model, enc=False):
             scaler.scale(loss).backward()
 
             if (step + 1) % accum_iter == 0:
+                scaler.unscale_(optimizer)  # unscale grads first
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
+
                 scaler.step(optimizer)
                 scaler.update()
-                optimizer.zero_grad()
-                scheduler.step()  # scheduler step after optimizer step
+                optimizer.zero_grad(set_to_none=True)
+                if args.model != "erfnet":
+                  scheduler.step()
+                #scheduler.step()  # scheduler step after optimizer step
 
             epoch_loss.append(loss.data.item())
             time_train.append(time.time() - start_time)
@@ -638,6 +645,9 @@ def train(args, model, enc=False):
             'best_acc': best_acc,
             'optimizer' : optimizer.state_dict(),
         }, is_best, filenameCheckpoint, filenameBest)
+
+        if args.model == "erfnet":
+          scheduler.step()
 
         #SAVE MODEL AFTER EPOCH
         if (enc):
