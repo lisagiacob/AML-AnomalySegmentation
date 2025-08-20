@@ -182,7 +182,8 @@ class LogitNormLoss(torch.nn.Module):
         return self.ce(z, targets)
 
 
-class EnhancedIsotropyLoss(torch.nn.Module):
+#Old version of isotropy loss, kept for compatibility
+class OldEnhancedIsotropyLoss(torch.nn.Module):
     def __init__(self):
         super().__init__()
 
@@ -194,6 +195,71 @@ class EnhancedIsotropyLoss(torch.nn.Module):
         identity = torch.eye(c, device=gram.device)
         return torch.norm(gram - identity, p='fro')
 
+class EnhancedIsotropyLoss(torch.nn.Module):
+    """
+    Isotropy regularizer over the (normalized) logit vectors.
+    Encourages the per-pixel logit directions to be uncorrelated
+    (Gram matrix close to identity).
+
+    Args:
+        ignore_index: label id to ignore (Cityscapes void=19). If None, no masking.
+        subsample: if >0, randomly sample this many pixels to compute Gram (saves memory).
+        eps: numerical stability for normalization.
+    """
+    def __init__(self, ignore_index: int = 19, subsample: int = 0, eps: float = 1e-6):
+        super().__init__()
+        self.ignore_index = ignore_index
+        self.subsample = subsample
+        self.eps = eps
+
+    @torch.cuda.amp.autocast(enabled=False)  # compute in fp32 for stability even under AMP
+    def forward(self, outputs: torch.Tensor, targets: torch.Tensor = None) -> torch.Tensor:
+        """
+        outputs: (B, C, H, W) logits BEFORE softmax
+        targets: (B, 1, H, W) or (B, H, W) labels (optional, used only to mask ignore_index)
+        """
+        # Work in float32 regardless of AMP to avoid numerical drift
+        logits = outputs.float()                        # (B, C, H, W)
+        B, C, H, W = logits.shape
+
+        # Flatten to (N, C), where N = B*H*W
+        feats = logits.permute(0, 2, 3, 1).reshape(-1, C)   # view, no extra memory
+
+        # Optional masking of void pixels
+        if targets is not None and self.ignore_index is not None:
+            if targets.dim() == 4 and targets.size(1) == 1:
+                tgt = targets[:, 0, :, :].reshape(-1)
+            else:
+                tgt = targets.reshape(-1)
+            mask = (tgt != self.ignore_index)
+            if mask.any():
+                feats = feats[mask]
+            else:
+                # No valid pixels; return zero loss that still participates in graph
+                return logits.sum() * 0.0
+
+        # Optional random subsampling for large images/batches
+        N = feats.size(0)
+        if self.subsample > 0 and N > self.subsample:
+            idx = torch.randperm(N, device=feats.device)[:self.subsample]
+            feats = feats.index_select(0, idx)
+            N = feats.size(0)
+
+        # Normalize each pixel's logit vector to unit length (direction only)
+        feats = F.normalize(feats, dim=1, eps=self.eps)     # (N, C)
+
+        # Channel–channel correlation (C × C), unbiased by N
+        gram = feats.transpose(0, 1).matmul(feats) / float(N)   # (C, C)
+
+        # Target: identity matrix (isotropy ⇒ uncorrelated, unit variance)
+        I = torch.eye(C, dtype=gram.dtype, device=gram.device)
+
+        # Stable objective: mean-squared error between Gram and identity
+        # (equivalent to Frobenius norm squared divided by C^2)
+        loss = F.mse_loss(gram, I, reduction='mean')
+        return loss
+
+
 
 def get_loss_function(loss_type, weight=None):
     
@@ -204,23 +270,24 @@ def get_loss_function(loss_type, weight=None):
     elif loss_type == 'logitnorm':
         return LogitNormLoss()
     elif loss_type == 'eim':
-        return EnhancedIsotropyLoss()
+        eim = EnhancedIsotropyLoss(ignore_index=19, subsample=8192)
+        return lambda out, tgt=None: eim(out, tgt)
 
+    elif loss_type == 'eim+ce':
+        ce  = CrossEntropyLoss2d(weight)
+        eim = EnhancedIsotropyLoss(ignore_index=19, subsample=8192)
+        return lambda out, tgt: ce(out, tgt) + 0.1 * eim(out, tgt) 
     
     elif loss_type == 'logitnorm+ce':
         ce = CrossEntropyLoss2d(weight)
         ln = LogitNormLoss()
         return lambda out, tgt: ce(out, tgt) + ln(out, tgt)
-
-    elif loss_type == 'eim+ce':
-        ce = CrossEntropyLoss2d(weight)
-        eim = EnhancedIsotropyLoss()
-        return lambda out, tgt: ce(out, tgt) + 0.1 * eim(out)
-
+    
     elif loss_type == 'logitnorm+focal':
-        focal = FocalLoss(weight=weight)
-        ln = LogitNormLoss()
-        return lambda out, tgt: focal(out, tgt) + ln(out, tgt)
+        focal = FocalLoss(gamma=2.0, weight=weight)
+        ln    = LogitNormLoss()
+        # total = focal(outputs, targets) + ln_coef * CE(normalized_logits, targets)
+        return lambda out, tgt: focal(out, tgt) + 2.0 * ln(out, tgt)
 
     elif loss_type == 'eim+focal':
         focal = FocalLoss(weight=weight)
@@ -823,7 +890,7 @@ if __name__ == '__main__':
     parser.add_argument('--pretrainedEncoder') #, default="../trained_models/erfnet_encoder_pretrained.pth.tar")
     parser.add_argument('--visualize', action='store_true')
     parser.add_argument('--loss-type', type=str, default='crossentropy',
-                    help='Type of loss function: crossentropy | focal | logitnorm | isotropy | logitnorm+ce | isotropy+focal | ecc.')
+                    help='Type of loss function: crossentropy | focal | logitnorm | eim | logitnorm+ce | logitnorm+focal | eim+focal | ecc.')
     parser.add_argument('--iouTrain', action='store_true', default=False) #recommended: False (takes more time to train otherwise)
     parser.add_argument('--iouVal', action='store_true', default=True)  
     parser.add_argument('--resume', action='store_true')    #Use this flag to load last checkpoint for training
