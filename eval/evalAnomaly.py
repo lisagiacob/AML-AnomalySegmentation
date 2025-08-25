@@ -109,7 +109,15 @@ def main():
         images = transform_input(Image.open(path).convert('RGB')).unsqueeze(0).float()
         #images = images.permute(0,3,1,2)
         with torch.no_grad():
-            result = model(images).squeeze(0)
+            outputs = model(images)
+
+# Fix per bisenetv1: prendi solo i logits principali se è una tuple
+        if args.loadModel == "bisenetv1.py":
+             if isinstance(outputs, (tuple, list)):
+                outputs = outputs[0]
+
+        result = outputs.squeeze(0)
+
             
         if args.method in ['msp', 'maxlogit', 'maxentropy']:
             result = result[:-1]  # drop void class if model is 20-wide but not trained for void

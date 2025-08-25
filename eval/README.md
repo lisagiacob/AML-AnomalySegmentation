@@ -45,7 +45,9 @@ This code can be used to calculate the IoU (mean and per-class) in a subset of i
 
 **Examples:**
 ```
-python eval_iou.py --datadir /home/datasets/cityscapes/ --subset val
+
+python eval_iou.py --datadir /home/datasets/cityscapes/ --subset val 
+python eval_iou.py --datadir /home/datasets/cityscapes/ --subset val --loadModel enet.py --loadWeights 
 ```
 
 ## eval_forwardTime.py
