@@ -104,6 +104,17 @@ def main(args):
         with torch.no_grad():
             outputs = model(inputs)
 
+            if args.loadModel == "bisenetv1.py":
+
+
+
+            # NEW: normalize the output to a single [N, C, H, W] tensor
+
+
+             if isinstance(outputs, (tuple, list)):
+
+                outputs = outputs[0]  # take main logits
+
         iouEvalVal.addBatch(outputs.max(1)[1].unsqueeze(1).data, labels)
 
         filenameSave = filename[0].split("leftImg8bit")[1] 
