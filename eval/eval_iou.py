@@ -103,11 +103,6 @@ def main(args):
         inputs = Variable(images)
         with torch.no_grad():
             outputs = model(inputs)
-            
-        if args.loadModel == "bisenetv1.py":
-            # NEW: normalize the output to a single [N, C, H, W] tensor
-            if isinstance(outputs, (tuple, list)):
-                outputs = outputs[0]  # take main logits
 
         iouEvalVal.addBatch(outputs.max(1)[1].unsqueeze(1).data, labels)
 
@@ -163,6 +158,7 @@ if __name__ == '__main__':
     parser.add_argument('--num-workers', type=int, default=4)
     parser.add_argument('--batch-size', type=int, default=1)
     parser.add_argument('--cpu', action='store_true')
+    
 
     args = parser.parse_args()
 
