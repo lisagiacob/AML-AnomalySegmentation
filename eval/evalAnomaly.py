@@ -117,11 +117,7 @@ def main():
                 outputs = outputs[0]
 
         result = outputs.squeeze(0)
-        result = F.softmax(result, dim=0)
 
-        if args.inference:
-          anomaly_map = (result[1] > result[0]).cpu().numpy().astype("uint8")
-          cv2.imwrite("anomaly_map.png", anomaly_map * 255)
             
         if args.method in ['msp', 'maxlogit', 'maxentropy']:
             result = result[:-1]  # drop void class if model is 20-wide but not trained for void
