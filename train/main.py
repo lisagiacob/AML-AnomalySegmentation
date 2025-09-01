@@ -812,7 +812,7 @@ def main(args):
             return model
 
         modelpath = args.state
-        if args.model == 'erfnet' or args.model == 'erfnet_isomax_plus':
+        if args.model == 'erfnet':
             model = load_my_state_dict(model, torch.load(modelpath))
         elif args.model == 'enet':
             model = load_my_state_dict(model.module, torch.load(modelpath)['state_dict'])
